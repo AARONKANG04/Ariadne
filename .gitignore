@@ -1,4 +1,29 @@
-.venv
+# --- Python / FastAPI ---
+.venv/
 ariadne_venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ipynb_checkpoints/
+# OGB Datasets (Prevents uploading GBs of data)
+dataset/
+*.zip
+*.gz
 
+# --- Node / React ---
+node_modules/
+dist/
+build/
+.eslintcache
+npm-debug.log*
+
+# --- Environment & OS ---
 .env
+.env.local
+.DS_Store
+Thumbs.db
+
+# --- Editors ---
+.vscode/
+.idea/
