@@ -34,6 +34,14 @@ ReactDOM.createRoot(rootElement).render(
       authorizationParams={{
         redirect_uri: window.location.origin,
       }}
+      useRefreshTokens={true}
+      cacheLocation="localstorage"
+      onRedirectCallback={(appState) => {
+        // Handle redirect callback if needed
+        if (appState?.returnTo) {
+          window.location.href = appState.returnTo;
+        }
+      }}
     >
       <App />
     </Auth0Provider>
