@@ -1,3 +1,5 @@
 snowflake-connector-python
 python-dotenv
 fastapi[standard]
+python-multipart
+uvicorn[standard]
