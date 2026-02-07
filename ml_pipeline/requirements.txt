@@ -3,3 +3,5 @@ torch-geometric
 ogb
 wandb
 tqdm
+torch-sparse
+torch-scatter

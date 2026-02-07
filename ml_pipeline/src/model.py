@@ -36,6 +36,9 @@ class EmbedderGNNv2(torch.nn.Module):
         self.convs.append(SAGEConv(in_dim, hidden_dim, aggr='mean'))
         self.bns.append(BatchNorm(hidden_dim))
 
+        self.mask_embed = torch.nn.Parameter(torch.randn(in_dim), requires_grad=True)
+        self.register_parameter("mask_embed", self.mask_embed)
+
         for _ in range(num_layers - 2):
             self.convs.append(SAGEConv(hidden_dim, hidden_dim, aggr='mean'))
             self.bns.append(BatchNorm(hidden_dim))
@@ -43,7 +46,13 @@ class EmbedderGNNv2(torch.nn.Module):
         self.convs.append(SAGEConv(hidden_dim, out_dim, aggr='mean'))
         self.bns.append(BatchNorm(out_dim))
 
-    def forward(self, x, edge_index):   
+    # Input format (probably): 
+    # x: (n, F)
+    # edge_index: (2, E)
+    def forward(self, x, edge_index):
+        x = x.clone().detach()
+        x[0] = self.mask_embed
+
         for i in range(self.num_layers):
             h = self.convs[i](x, edge_index)
             
