@@ -23,7 +23,7 @@ const papersData = [
   },
   {
     id: 'gpt',
-    label: 'Language Models are Unsupervised Multitask',
+    label: 'language models are unsupervised multitask learners',
     authors: 'Radford et al.',
     year: 2019,
     importance: 0.90,
@@ -87,6 +87,21 @@ const papersData = [
   },
 ];
 
+// Year to color mapping
+const yearColorMap: { [key: number]: string } = {
+  2015: '#FF6B9D', // Deep pink
+  2016: '#FF8C42', // Orange
+  2017: '#FFC837', // Gold
+  2018: '#26DE81', // Green
+  2019: '#48DBFB', // Light blue
+  2020: '#5F27CD', // Purple
+};
+
+// Get color based on year
+const getYearColor = (year: number): string => {
+  return yearColorMap[year] || '#CCCCCC';
+};
+
 // Citation relationships (edges)
 const citations = [
   { source: 'bert', target: 'transformer' },
@@ -113,12 +128,21 @@ const MLVisualization: React.FC = () => {
     // Create graph
     const graph = new Graph();
 
+    // Find min and max citations for scaling
+    const citations_array = papersData.map(p => p.citations);
+    const minCitations = Math.min(...citations_array);
+    const maxCitations = Math.max(...citations_array);
+
     // Add nodes (papers)
     papersData.forEach((paper) => {
+      // Size based on citation count (importance)
+      const sizeScale = (paper.citations - minCitations) / (maxCitations - minCitations);
+      const nodeSize = 10 + sizeScale * 40;
+
       graph.addNode(paper.id, {
         label: paper.label,
-        size: 15 + paper.importance * 20,
-        color: `hsl(${200 + paper.year % 60}, ${70 + paper.citations / 1000}%, 50%)`,
+        size: nodeSize,
+        color: getYearColor(paper.year),
         x: Math.random() * 100,
         y: Math.random() * 100,
       });
@@ -152,20 +176,55 @@ const MLVisualization: React.FC = () => {
           {user?.name ? `Welcome, ${user.name}!` : 'Explore'} — Interactive visualization of influential machine learning papers
         </p>
       </div>
-      <div
-        ref={containerRef}
-        className="ml-graph-container"
-        style={{
-          width: '100%',
-          height: 'calc(100vh - 200px)',
-          background: 'linear-gradient(135deg, #389cff 0%, #1a1f2e 100%)',
-          borderRadius: '20px',
-          overflow: 'hidden',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.8)',
-        }}
-      />
+      <div className="ml-content-wrapper">
+        <div
+          ref={containerRef}
+          className="ml-graph-container"
+          style={{
+            width: '100%',
+            height: 'calc(100vh - 200px)',
+            background: 'linear-gradient(135deg, #0080ff 0%, #0aff80 100%)',
+            borderRadius: '20px',
+            overflow: 'hidden',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.8)',
+          }}
+        />
+        <div className="ml-legend">
+          <div className="legend-section">
+            <h4 className="legend-title">Node Size</h4>
+            <p className="legend-text">Represents citation count</p>
+            <div className="size-scale">
+              <div className="size-indicator small"></div>
+              <span className="scale-label">Fewer citations</span>
+            </div>
+            <div className="size-scale">
+              <div className="size-indicator large"></div>
+              <span className="scale-label">More citations</span>
+            </div>
+          </div>
+          <div className="legend-section">
+            <h4 className="legend-title">Node Color</h4>
+            <p className="legend-text">Represents publication year</p>
+            <div className="color-scale">
+              {Object.entries(yearColorMap).map(([year, color]) => (
+                <div key={year} className="year-color-item">
+                  <div className="color-dot" style={{ backgroundColor: color }}></div>
+                  <span className="year-label">{year}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="legend-section">
+            <h4 className="legend-title">Interactions</h4>
+            <p className="legend-text">Edges represent citation relationships</p>
+            <p className="legend-text" style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
+              Hover over papers to explore their connections
+            </p>
+          </div>
+        </div>
+      </div>
       <div className="ml-info">
-        <p>💡 Hover over a paper to explore | Node size = importance | Colors = year & citation count</p>
+        <p>💡 Interact with the graph | Node size = citation importance | Colors = publication year</p>
       </div>
     </div>
   );

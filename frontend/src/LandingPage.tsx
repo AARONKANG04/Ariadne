@@ -18,12 +18,11 @@ const LandingPage = () => {
         <div className="hero-section">
           <div className="hero-text">
             <h1 className="hero-title">
-              <span className="gradient-text">AI Knowledge</span>
-              <br />
-              Visualization
+              <span className="gradient-text">ARIADNE</span>
             </h1>
+            <p className="hero-subtitle">Visualization</p>
             <p className="hero-description">
-              Explore the interconnected landscape of machine learning research. Discover how breakthrough papers influence the future of AI.
+              Dive into literature search. Explore the interconnected landscape of research. 
             </p>
           </div>
 
@@ -64,8 +63,10 @@ const LandingPage = () => {
           <div className="tech-badges">
             <span className="tech-badge">React</span>
             <span className="tech-badge">Sigma.js</span>
+            <span className="tech-badge">PyTorch Geometric</span>
             <span className="tech-badge">TypeScript</span>
             <span className="tech-badge">Vite</span>
+            <span className="tech-badge">pain and suffering</span>
           </div>
         </div>
       </div>
