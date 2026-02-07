@@ -1,35 +1,51 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useAuth0 } from '@auth0/auth0-react';
+import LandingPage from './LandingPage';
+import MLVisualization from './MLVisualization';
+import LogoutButton from './LogoutButton';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const { isAuthenticated, isLoading, error } = useAuth0();
+
+  if (isLoading) {
+    return (
+      <div className="app-container">
+        <div className="loading-state">
+          <div className="loading-spinner"></div>
+          <div className="loading-text">Initializing...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="app-container">
+        <div className="error-state">
+          <div className="error-title">⚠️ Error</div>
+          <div className="error-message">Something went wrong</div>
+          <div className="error-sub-message">{error.message}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div className="app-container">
+      {isAuthenticated ? (
+        <div className="authenticated-view">
+          <div className="top-bar">
+            <div className="branding">
+              <h2>AI Research Insights</h2>
+            </div>
+            <LogoutButton />
+          </div>
+          <MLVisualization />
+        </div>
+      ) : (
+        <LandingPage />
+      )}
+    </div>
+  );
 }
 
-export default App
+export default App;

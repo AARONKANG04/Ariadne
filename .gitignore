@@ -13,6 +13,7 @@ data/
 
 # --- Node / React ---
 node_modules/
+frontend/.vite/
 dist/
 build/
 .eslintcache
