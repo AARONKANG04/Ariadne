@@ -5,6 +5,7 @@ wandb
 tqdm
 torch-sparse
 torch-scatter
+dotenv
 aiohttp
 pandas
 google-generativeai
