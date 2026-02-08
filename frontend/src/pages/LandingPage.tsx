@@ -455,7 +455,7 @@ const LandingPage = () => {
               }`}
             >
               <p className="text-lg md:text-xl text-white/80 leading-relaxed max-w-2xl mx-auto font-light">
-                Discover the future of academic research with Ariadne — an ArXiV paper recommendation system powered by Graph Neural Network link prediction. Navigate the vast landscape of scientific literature with intelligent, context-aware recommendations.
+                Discover the future of academic research with Ariadne — an ArXiV paper recommendation system powered by a Graph Neural Network. Navigate the vast landscape of scientific literature with intelligent, context-aware recommendations.
               </p>
             </div>
             {/* Why? description */}
@@ -468,16 +468,7 @@ const LandingPage = () => {
                 The academic research landscape is vast and constantly expanding. Researchers struggle to discover relevant papers that align with their interests and current work. Traditional keyword-based search methods often miss important connections and fail to capture the nuanced relationships between research papers. Ariadne addresses this challenge by leveraging the power of graph neural networks to understand and predict meaningful connections in the academic literature network.
               </p>
             </div>
-            {/* How? description */}
-            <div 
-              className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
-                scrollState === 2 ? 'opacity-100' : 'opacity-0 pointer-events-none'
-              }`}
-            >
-              <p className="text-lg md:text-xl text-white/80 leading-relaxed max-w-2xl mx-auto font-light">
-                We built Ariadne using Apache Spark for distributed data processing and PyTorch Geometric for training our Graph Neural Network (GNN). Apache Spark enabled us to efficiently process and transform the massive ArXiv dataset, handling millions of papers and their citation relationships at scale. We then used PyTorch Geometric to construct and train a GNN model that learns to predict meaningful links between papers by understanding the graph structure of academic citations. The model captures complex patterns in how research papers relate to each other, enabling intelligent, context-aware recommendations that go beyond simple keyword matching.
-              </p>
-            </div>
+            
           </div>
         </div>
       </main>
