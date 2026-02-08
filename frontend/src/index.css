@@ -764,3 +764,22 @@ html {
     gap: 0.6rem;
   }
 }
+
+/* Paper view card – scrollable abstract with modern scrollbar */
+.paper-card-abstract {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+.paper-card-abstract::-webkit-scrollbar {
+  width: 6px;
+}
+.paper-card-abstract::-webkit-scrollbar-track {
+  background: transparent;
+}
+.paper-card-abstract::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+.paper-card-abstract::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}

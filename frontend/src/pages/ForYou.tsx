@@ -1,52 +1,71 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
+import { fetchForYou, fetchPaperInfo, type ForYouPaper, type PaperInfo } from '../api/papers';
 
 const ForYou: React.FC = () => {
   const { user } = useAuth0();
+  const [papers, setPapers] = useState<ForYouPaper[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedMagId, setSelectedMagId] = useState<string | null>(null);
+  const [paperInfo, setPaperInfo] = useState<PaperInfo | null>(null);
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [infoError, setInfoError] = useState<string | null>(null);
 
-  // Mock personalized recommendations
-  const recommendations = [
-    {
-      id: 'rec1',
-      title: 'Graph Neural Networks for Recommendation Systems',
-      authors: 'Ying et al.',
-      year: 2018,
-      reason: 'Based on your interest in GNNs',
-      relevance: 0.95,
-    },
-    {
-      id: 'rec2',
-      title: 'Neural Collaborative Filtering',
-      authors: 'He et al.',
-      year: 2017,
-      reason: 'Similar to papers you\'ve viewed',
-      relevance: 0.92,
-    },
-    {
-      id: 'rec3',
-      title: 'LightGCN: Simplifying and Powering Graph Convolution Network',
-      authors: 'He et al.',
-      year: 2020,
-      reason: 'Highly cited in your research area',
-      relevance: 0.89,
-    },
-    {
-      id: 'rec4',
-      title: 'Self-Supervised Learning for Recommendation',
-      authors: 'Wu et al.',
-      year: 2021,
-      reason: 'Trending in your field',
-      relevance: 0.87,
-    },
-    {
-      id: 'rec5',
-      title: 'Graph Convolutional Matrix Completion',
-      authors: 'Berg et al.',
-      year: 2017,
-      reason: 'Related to your reading history',
-      relevance: 0.85,
-    },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await fetchForYou(50);
+        if (!cancelled) setPapers(data.papers);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load papers');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const openPaperCard = async (magId: string) => {
+    setSelectedMagId(magId);
+    setPaperInfo(null);
+    setInfoError(null);
+    setInfoLoading(true);
+    try {
+      const info = await fetchPaperInfo(magId);
+      setPaperInfo(info);
+    } catch (e) {
+      setInfoError(e instanceof Error ? e.message : 'Failed to load paper details');
+    } finally {
+      setInfoLoading(false);
+    }
+  };
+
+  const closePaperCard = () => {
+    setSelectedMagId(null);
+    setPaperInfo(null);
+    setInfoError(null);
+  };
+
+  useEffect(() => {
+    if (!selectedMagId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closePaperCard();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedMagId]);
+
+  const displayLink = (info: PaperInfo): string | null => info.doi_url ?? info.mag_id;
+
+  /** Normalize abstract: remove literal \n so display wraps naturally. */
+  const normalizedAbstract = (abstract: string | null): string | null => {
+    if (abstract == null || abstract === '') return null;
+    return abstract.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim() || null;
+  };
 
   return (
     <div className="flex flex-col gap-6 flex-1 max-w-7xl mx-auto w-full">
@@ -60,41 +79,39 @@ const ForYou: React.FC = () => {
         </p>
       </div>
 
-      {/* Recommendations Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {recommendations.map((paper) => (
-          <div
-            key={paper.id}
-            className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6 hover:bg-white/10 transition-all duration-300 cursor-pointer group"
-          >
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-white mb-2 group-hover:text-white/90 transition-colors">
-                  {paper.title}
-                </h3>
-                <p className="text-sm text-white/70 mb-1">{paper.authors}</p>
-                <p className="text-xs text-white/50">{paper.year}</p>
-              </div>
-              <div className="ml-4 flex-shrink-0">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-500/30 flex items-center justify-center">
-                  <span className="text-xs font-bold text-purple-300">
-                    {Math.round(paper.relevance * 100)}%
-                  </span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="mt-4 pt-4 border-t border-white/10">
-              <p className="text-xs text-white/60">
-                <span className="text-white/80 font-medium">Why:</span> {paper.reason}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Loading / Error */}
+      {loading && (
+        <div className="flex justify-center py-12">
+          <div className="w-10 h-10 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+        </div>
+      )}
+      {error && (
+        <div className="rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 text-center">
+          {error}
+        </div>
+      )}
 
-      {/* Empty State (if no recommendations) */}
-      {recommendations.length === 0 && (
+      {/* Recommendations Grid */}
+      {!loading && !error && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {papers.map((paper) => (
+            <button
+              key={paper.mag_id}
+              type="button"
+              onClick={() => openPaperCard(paper.mag_id)}
+              className="text-left bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6 hover:bg-white/10 transition-all duration-300 cursor-pointer group"
+            >
+              <h3 className="text-lg font-semibold text-white mb-2 group-hover:text-white/90 transition-colors">
+                {paper.title}
+              </h3>
+              <p className="text-xs text-white/50">OpenAlex · View details</p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && !error && papers.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-4">
             <svg
@@ -115,6 +132,91 @@ const ForYou: React.FC = () => {
           <p className="text-white/40 text-sm mt-2">
             Start exploring papers to get personalized recommendations
           </p>
+        </div>
+      )}
+
+      {/* Paper view card (modal) */}
+      {selectedMagId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+          onClick={closePaperCard}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="paper-card-title"
+        >
+          <div
+            className="bg-gradient-to-b from-gray-900 to-gray-900/95 border border-white/10 rounded-2xl shadow-2xl shadow-black/40 max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Card header with accent */}
+            <div className="shrink-0 h-1 bg-gradient-to-r from-teal-500/80 via-cyan-500/60 to-transparent" />
+            <div className="shrink-0 flex justify-between items-center gap-4 px-6 pt-5 pb-4 border-b border-white/5">
+              <h2 id="paper-card-title" className="text-lg font-semibold text-white tracking-tight">
+                Paper details
+              </h2>
+              <button
+                type="button"
+                onClick={closePaperCard}
+                className="text-white/50 hover:text-white p-2 -m-2 rounded-lg hover:bg-white/5 transition-colors"
+                aria-label="Close"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden px-6 pb-6">
+              {infoLoading && (
+                <div className="flex justify-center py-12">
+                  <div className="w-8 h-8 border-2 border-white/20 border-t-teal-400 rounded-full animate-spin" />
+                </div>
+              )}
+              {infoError && (
+                <p className="text-red-300/90 py-6 text-sm">{infoError}</p>
+              )}
+              {paperInfo && !infoLoading && (
+                <div className="flex flex-col gap-5 min-h-0 pt-4">
+                  <div className="shrink-0">
+                    <span className="text-[10px] font-medium uppercase tracking-widest text-teal-400/90">Title</span>
+                    <p className="text-white font-medium mt-1.5 leading-snug">{paperInfo.title ?? '—'}</p>
+                  </div>
+
+                  {normalizedAbstract(paperInfo.abstract) != null && (
+                    <div className="shrink-0 flex flex-col">
+                      <span className="text-[10px] font-medium uppercase tracking-widest text-teal-400/90 mb-1.5">Abstract</span>
+                      <div className="h-52 rounded-xl bg-white/[0.04] border border-white/5 overflow-hidden flex flex-col min-h-0">
+                        <div className="paper-card-abstract flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 text-white/80 text-sm leading-relaxed">
+                          {normalizedAbstract(paperInfo.abstract)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="shrink-0 pt-1 border-t border-white/5">
+                    <span className="text-[10px] font-medium uppercase tracking-widest text-teal-400/90">Link</span>
+                    <div className="mt-2">
+                      {displayLink(paperInfo) ? (
+                        <a
+                          href={displayLink(paperInfo)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-sm font-medium text-teal-400 hover:text-teal-300 transition-colors"
+                        >
+                          <span>{paperInfo.doi_url ? 'Open paper' : 'View on OpenAlex'}</span>
+                          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
+                      ) : (
+                        <span className="text-white/50 text-sm">No link available</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
