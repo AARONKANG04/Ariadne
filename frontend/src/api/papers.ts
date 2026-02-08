@@ -5,8 +5,10 @@ export type ForYouResponse = { papers: ForYouPaper[]; count: number };
 
 export type PaperInfo = { mag_id: string; title: string | null; doi_url: string | null; abstract: string | null };
 
-export async function fetchForYou(n: number = 50): Promise<ForYouResponse> {
-  const res = await fetch(`${API_BASE}/api/papers/for-you?n=${n}`);
+export async function fetchForYou(n: number = 50, accessToken?: string): Promise<ForYouResponse> {
+  const res = await fetch(`${API_BASE}/api/papers/for-you?n=${n}`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  });
   if (!res.ok) throw new Error('Failed to fetch For You papers');
   return res.json();
 }
@@ -19,4 +21,15 @@ export async function fetchPaperInfo(magId: string): Promise<PaperInfo> {
     throw new Error('Failed to fetch paper info');
   }
   return res.json();
+}
+
+export async function registerPaperClick(magId: string, accessToken?: string): Promise<void> {
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+  const res = await fetch(`${API_BASE}/api/papers/click`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ mag_id: magId }),
+  });
+  if (!res.ok) throw new Error('Failed to register click');
 }

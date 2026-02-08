@@ -1,30 +1,21 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from backend.routers import papers, upload
-from ml_pipeline.src.data_loader import load_ogbn_arxiv, unsafe_load_ogbn_arxiv
-from pydantic import BaseModel
-from typing import List
-
-from torch_geometric.data import Data
-import torch
+from backend.routers import papers, upload, user
+import numpy as np
 
 app = FastAPI(
     title="Ariadne API",
     description="Backend for paper discovery and uploads",
 )
 
-dataset = unsafe_load_ogbn_arxiv()
-graph_dict, labels = dataset[0]
-graph = Data(
-    x=torch.tensor(graph_dict['node_feat'], dtype=torch.float),
-    edge_index=torch.tensor(graph_dict['edge_index'], dtype=torch.long),
-    num_nodes=graph_dict['num_nodes']
-)
-# Add to feature dimension to simulate the reembedded graph
-# TODO: replace with actual reembedded graph
-graph.x = torch.cat([graph.x, torch.zeros(graph.num_nodes, 256)], dim=1)
+# Load precomputed embeddings (no torch needed!)
+embeddings = np.load("paper_embeddings_256d.npy").astype('float32')
+embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
 
+print(f"✅ Loaded {embeddings.shape[0]} paper embeddings")
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,20 +32,23 @@ app.add_middleware(
 
 app.include_router(upload.router)
 app.include_router(papers.router)
-
-
+app.include_router(user.router)
 
 @app.get("/")
 def read_root():
     return {"message": "Hello, World!"}
 
-from ml_pipeline.src.gnn_embed_new import endpoint
+# Keep this endpoint but use precomputed embeddings
+from pydantic import BaseModel
+from typing import List
 
 class CitationListRequest(BaseModel):
     ids: List[int]
 
-# sample usage of endpoint below
-# Gets full embedding: probably impractical for frontend
 @app.post("/get_new_node_embedding")
 def get_new_node_embedding(request: CitationListRequest):
-    return {"embedding": endpoint(graph, request.ids).tolist()}
+    """Get embedding for a virtual user node based on clicked papers."""
+    # Average the clicked papers' embeddings
+    user_embedding = embeddings[request.ids].mean(axis=0)
+    user_embedding = user_embedding / np.linalg.norm(user_embedding)
+    return {"embedding": user_embedding.tolist()}

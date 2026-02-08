@@ -33,6 +33,7 @@ ReactDOM.createRoot(rootElement).render(
       clientId={clientId}
       authorizationParams={{
         redirect_uri: window.location.origin,
+        audience: "https://ariadne-api",
       }}
       useRefreshTokens={true}
       cacheLocation="localstorage"

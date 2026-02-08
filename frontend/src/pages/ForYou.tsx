@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
-import { fetchForYou, fetchPaperInfo, type ForYouPaper, type PaperInfo } from '../api/papers';
+import { fetchForYou, fetchPaperInfo, registerPaperClick, type ForYouPaper, type PaperInfo } from '../api/papers';
 
 const ForYou: React.FC = () => {
-  const { user } = useAuth0();
+  const { user, getAccessTokenSilently } = useAuth0();
   const [papers, setPapers] = useState<ForYouPaper[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +18,8 @@ const ForYou: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchForYou(50);
+        const token = await getAccessTokenSilently().catch(() => undefined);
+        const data = await fetchForYou(50, token);
         if (!cancelled) setPapers(data.papers);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load papers');
@@ -27,7 +28,7 @@ const ForYou: React.FC = () => {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [getAccessTokenSilently]);
 
   const openPaperCard = async (magId: string) => {
     setSelectedMagId(magId);
@@ -202,6 +203,11 @@ const ForYou: React.FC = () => {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-2 text-sm font-medium text-teal-400 hover:text-teal-300 transition-colors"
+                          onClick={() => {
+                            getAccessTokenSilently()
+                              .then((token) => registerPaperClick(paperInfo.mag_id, token))
+                              .catch(() => {});
+                          }}
                         >
                           <span>{paperInfo.doi_url ? 'Open paper' : 'View on OpenAlex'}</span>
                           <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

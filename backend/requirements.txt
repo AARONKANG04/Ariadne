@@ -5,3 +5,5 @@ python-multipart
 uvicorn[standard]
 arxiv
 chromadb
+PyJWT[crypto]
+httpx
