@@ -31,3 +31,5 @@ Thumbs.db
 # --- Editors ---
 .vscode/
 .idea/
+
+ml_pipeline/models/

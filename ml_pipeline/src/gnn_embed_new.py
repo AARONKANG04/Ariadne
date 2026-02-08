@@ -2,14 +2,18 @@
 # whose abstracts are unknown but whose citation list is known.
 # Also includes a test run in __main__ for a random chunk of the train graph. (not sure if this works anymore)
 
+import sys
+from pathlib import Path
+# Add parent directory to path so we can import from src
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import torch
 from torch_geometric.data import Data
 from torch_geometric.utils import k_hop_subgraph
 import numpy as np
-from src.model import EmbedderGNNv3
-from src.data_loader import load_ogbn_arxiv
 from contextlib import contextmanager
-from src.data_loader import unsafe_load_ogbn_arxiv
+from src.model import EmbedderGNNv3
+from src.data_loader import load_ogbn_arxiv, unsafe_load_ogbn_arxiv
 from src.hf_embed import get_semantic_embed
 
 INPUT_DIM = 384   # 128 (Original) + 256 (Qwen)
@@ -52,79 +56,81 @@ def get_cluster(data, center=None, num_neighbors=[10, 10, 5]):
     return Data(x=data.x[subset], edge_index=sub_edge_index, num_nodes=len(subset)), mapping, subset
 
 
-def build_query_graph(base_graph, cited_node_ids, new_paper_embedding, num_neighbors=[10, 10, 5]):
+def build_query_graph(base_graph, cited_node_ids, num_neighbors=[10, 10, 5]):
     """
     This is what "adds" the new paper to the graph in preparation for inference.
 
     Given our entire graph, and a new paper's citation list,
-    builds a new subgraph of the new paper's neighbourhood. 
+    builds a new subgraph of the new paper's neighbourhood with center at index 0.
     
     Args:
         base_graph: Full ogbn-arxiv graph (Data object)
         cited_node_ids: List of node IDs the new paper cites
-        new_paper_embedding: Embedding vector for new paper (shape: [embed_dim])
         num_neighbors: Sampling strategy per hop
         
     Returns:
-        subgraph_data, new_node_idx_in_subgraph, original_node_ids
+        subgraph_data (with center at index 0), original_node_ids
     """
     # 1. Create extended graph with new node
     num_original_nodes = base_graph.num_nodes
     new_node_id = num_original_nodes  # New node ID
     
-    # 2. Extend node features (add new paper's embedding)
-    extended_x = torch.cat([
-        base_graph.x,
-        new_paper_embedding.unsqueeze(0)  # Add as new row
-    ], dim=0)
+    # 2. Extend node features (use zeros placeholder - will be masked anyway)
+    placeholder_embedding = torch.zeros(1, base_graph.x.shape[1])
+    extended_x = torch.cat([base_graph.x, placeholder_embedding], dim=0)
     
     # 3. Create edges: new_node → cited_nodes
     new_edges = torch.tensor([
-        [new_node_id] * len(cited_node_ids),  # Source: new node
-        cited_node_ids                         # Target: cited papers
+        [new_node_id] * len(cited_node_ids),
+        cited_node_ids
     ], dtype=torch.long)
     
-    # 4. Extend edge_index
-    extended_edge_index = torch.cat([
-        base_graph.edge_index,
-        new_edges
-    ], dim=1)
-    
-    # 5. Create extended graph
+    # 4. Extend edge_index and create extended graph
+    extended_edge_index = torch.cat([base_graph.edge_index, new_edges], dim=1)
     extended_graph = Data(
         x=extended_x,
         edge_index=extended_edge_index,
         num_nodes=num_original_nodes + 1
     )
     
-    # 6. Sample neighborhood around new node
+    # 5. Use get_cluster to sample neighborhood
     subgraph, center_idx, orig_ids = get_cluster(
         extended_graph,
         center=new_node_id,
         num_neighbors=num_neighbors
     )
     
-    return subgraph, center_idx, orig_ids
+    # 6. Reorder to put center at index 0
+    other_indices = [i for i in range(subgraph.num_nodes) if i != center_idx]
+    reorder = torch.tensor([center_idx] + other_indices)
+    
+    # Reorder features and original IDs
+    reordered_x = subgraph.x[reorder]
+    reordered_orig_ids = orig_ids[reorder]
+    
+    # Remap edge indices
+    old_to_new = torch.zeros(subgraph.num_nodes, dtype=torch.long)
+    old_to_new[reorder] = torch.arange(subgraph.num_nodes)
+    reordered_edge_index = old_to_new[subgraph.edge_index]
+    
+    # Create final subgraph
+    final_subgraph = Data(
+        x=reordered_x,
+        edge_index=reordered_edge_index,
+        num_nodes=subgraph.num_nodes
+    )
+    
+    return final_subgraph, reordered_orig_ids
 
-
-def run_gnn(graph, center_idx):
-    """Run GNN inference. Optionally concatenate extra features via feature_fn."""
-    with torch.no_grad():
-        x = graph.x
-        
-        # Replace the center node's embedding with a placeholder before inference
-        placeholder_embed = torch.zeros_like(x[center_idx]).unsqueeze(0)  # Shape: [1, embed_dim]
-        x = x.clone()
-        x[center_idx] = placeholder_embed
-
-        extra_embed = get_semantic_embed(get_abstract(center_idx))  # Apply function to get extra features
-        x = torch.cat([x, extra_embed], dim=-1)  # Concatenate along feature dim
-        return model(x, graph.edge_index)
 
 def endpoint(graph, citation_ids): 
-    neighbourhood_graph, center_idx, orig_ids = build_query_graph(graph, citation_ids)
-    embeddings = run_gnn(neighbourhood_graph, center_idx)
-    return embeddings
+    # Build the neighbourhood subgraph (center at index 0, will be masked)
+    neighbourhood_graph, orig_ids = build_query_graph(graph, citation_ids)
+    # Forward pass
+    with torch.no_grad():
+        embeddings = model(neighbourhood_graph.x, neighbourhood_graph.edge_index)
+    # Return the embedding of the new paper (always at index 0)
+    return embeddings[0]
 
 if __name__ == "__main__":
     # Load data
@@ -135,8 +141,8 @@ if __name__ == "__main__":
         edge_index=torch.tensor(graph_dict['edge_index'], dtype=torch.long),
         num_nodes=graph_dict['num_nodes']
     )
+    # Add to feature dimension to simulate the reembedded graph
+    data.x = torch.cat([data.x, torch.zeros(data.num_nodes, 256)], dim=1)
     
     # Get cluster and run inference
-    cluster, center_idx, orig_ids = get_cluster(data, center=67, num_neighbors=[16, 8])
-    embeddings = run_gnn(cluster, center_idx)
-    print(f"Cluster: {cluster.num_nodes} nodes | Embeddings: {embeddings.shape}")
+    print(endpoint(data, [6767, 6, 7, 67]))
