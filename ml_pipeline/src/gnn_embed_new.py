@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
 from torch_geometric.data import Data
-from torch_geometric.utils import k_hop_subgraph
+from torch_geometric.utils import k_hop_subgraph, subgraph
 import numpy as np
 from contextlib import contextmanager
 from src.model import EmbedderGNNv3
@@ -51,9 +51,10 @@ def get_cluster(data, center=None, num_neighbors=[10, 10, 5]):
         current_layer = next_layer  # Move to next layer
     
     subset = torch.tensor(sorted(all_nodes), dtype=torch.long)
-    _, sub_edge_index, mapping, _ = k_hop_subgraph(subset, 0, data.edge_index, relabel_nodes=True, num_nodes=data.num_nodes)
+    sub_edge_index, _ = subgraph(subset, data.edge_index, relabel_nodes=True, num_nodes=data.num_nodes)
     mapping = (subset == center).nonzero(as_tuple=True)[0].item()
     return Data(x=data.x[subset], edge_index=sub_edge_index, num_nodes=len(subset)), mapping, subset
+    # Relabeled subgraph, index of the center node, tensor of original node IDs
 
 
 def build_query_graph(base_graph, cited_node_ids, num_neighbors=[10, 10, 5]):
@@ -71,21 +72,24 @@ def build_query_graph(base_graph, cited_node_ids, num_neighbors=[10, 10, 5]):
     Returns:
         subgraph_data (with center at index 0), original_node_ids
     """
-    # 1. Create extended graph with new node
+    # Assign a new node ID to the new paper
     num_original_nodes = base_graph.num_nodes
     new_node_id = num_original_nodes  # New node ID
     
-    # 2. Extend node features (use zeros placeholder - will be masked anyway)
+    # Extend node features (use zeros placeholder, the model masks it anyway)
     placeholder_embedding = torch.zeros(1, base_graph.x.shape[1])
     extended_x = torch.cat([base_graph.x, placeholder_embedding], dim=0)
     
-    # 3. Create edges: new_node → cited_nodes
+    # Create edges: new_node -> all of cited_node_ids
+    assert all(i < num_original_nodes for i in cited_node_ids),\
+           "Cited node IDs out of range"
+    
     new_edges = torch.tensor([
         [new_node_id] * len(cited_node_ids),
         cited_node_ids
     ], dtype=torch.long)
     
-    # 4. Extend edge_index and create extended graph
+    # Extend edge_index and create extended graph
     extended_edge_index = torch.cat([base_graph.edge_index, new_edges], dim=1)
     extended_graph = Data(
         x=extended_x,
@@ -93,14 +97,14 @@ def build_query_graph(base_graph, cited_node_ids, num_neighbors=[10, 10, 5]):
         num_nodes=num_original_nodes + 1
     )
     
-    # 5. Use get_cluster to sample neighborhood
+    # Use get_cluster to sample neighborhood
     subgraph, center_idx, orig_ids = get_cluster(
         extended_graph,
         center=new_node_id,
         num_neighbors=num_neighbors
     )
     
-    # 6. Reorder to put center at index 0
+    # Reorder to put center at index 0
     other_indices = [i for i in range(subgraph.num_nodes) if i != center_idx]
     reorder = torch.tensor([center_idx] + other_indices)
     
