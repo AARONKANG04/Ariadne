@@ -1,15 +1,15 @@
 import torch
-import torch_geometric
-from torch_geometric.nn import SAGEConv, BatchNorm
+import torch.nn as nn
+from torch_geometric.nn import SAGEConv, BatchNorm, JumpingKnowledge
 import torch.nn.functional as F
 
-class EmbedderGNNv1(torch.nn.Module):
+class EmbedderGNNv1(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.conv1 = SAGEConv(dim, dim, aggr='mean')
         self.conv2 = SAGEConv(dim, dim, aggr='mean')
-        self.norm1 = torch.nn.LayerNorm(dim)
-        self.norm2 = torch.nn.LayerNorm(dim)
+        self.norm1 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim)
 
     # x: node features (B, N, C)
     # edge_index: source node indices, target node indices (2, E)
@@ -24,19 +24,19 @@ class EmbedderGNNv1(torch.nn.Module):
         return h2 + h
 
 
-class EmbedderGNNv2(torch.nn.Module):
+class EmbedderGNNv2(nn.Module):
     def __init__(self, in_dim, hidden_dim, out_dim, num_layers=2, dropout=0.5):
         super().__init__()
         self.dropout = dropout
         self.num_layers = num_layers
 
-        self.convs = torch.nn.ModuleList()
-        self.bns = torch.nn.ModuleList()
+        self.convs = nn.ModuleList()
+        self.bns = nn.ModuleList()
 
         self.convs.append(SAGEConv(in_dim, hidden_dim, aggr='mean'))
         self.bns.append(BatchNorm(hidden_dim))
 
-        self.mask_embed = torch.nn.Parameter(torch.randn(in_dim), requires_grad=True)
+        self.mask_embed = nn.Parameter(torch.randn(in_dim), requires_grad=True)
         self.register_parameter("mask_embed", self.mask_embed)
 
         for _ in range(num_layers - 2):
@@ -46,21 +46,21 @@ class EmbedderGNNv2(torch.nn.Module):
         self.convs.append(SAGEConv(hidden_dim, out_dim, aggr='mean'))
         self.bns.append(BatchNorm(out_dim))
 
-class EmbedderGNNv3(torch.nn.Module):
+class EmbedderGNNv3(nn.Module):
     def __init__(self, in_dim, hidden_dim, out_dim, num_layers=3, dropout=0.5):
         super().__init__()
         self.dropout = dropout
         self.num_layers = num_layers
 
-        self.convs = torch.nn.ModuleList()
-        self.bns = torch.nn.ModuleList()
+        self.convs = nn.ModuleList()
+        self.bns = nn.ModuleList()
 
         # Layer 1: Input -> Hidden
         self.convs.append(SAGEConv(in_dim, hidden_dim, aggr='mean'))
         self.bns.append(BatchNorm(hidden_dim))
 
         # Learnable Mask Token (Replacing Node 0's features)
-        self.mask_embed = torch.nn.Parameter(torch.randn(in_dim), requires_grad=True)
+        self.mask_embed = nn.Parameter(torch.randn(in_dim), requires_grad=True)
         # self.register_parameter("mask_embed", self.mask_embed) # Not strictly needed if assigned to self
 
         # Hidden Layers
@@ -122,4 +122,106 @@ class EmbedderGNNv3(torch.nn.Module):
             
             x = h
 
+        return x
+
+
+class EmbedderGNNv4(nn.Module):
+    def __init__(self, in_dim, hidden_dim, out_dim, num_layers=3, dropout=0.5):
+        super().__init__()
+        self.dropout = dropout
+        self.num_layers = num_layers
+
+        self.mask_token = nn.Parameter(torch.randn(in_dim), requires_grad=True)
+
+        self.input_projection = nn.Linear(in_dim, hidden_dim)
+        self.input_norm = nn.LayerNorm(hidden_dim)
+
+        self.convs = nn.ModuleList()
+        self.norms = nn.ModuleList()
+
+        for _ in range(self.num_layers):
+            self.convs.append(SAGEConv(hidden_dim, hidden_dim, aggr='mean'))
+            self.norms.append(BatchNorm(hidden_dim))
+
+        self.output_projection = nn.Linear(hidden_dim, out_dim)
+
+    def forward(self, x, edge_index):
+        mask_vector = self.mask_token
+        x_masked = torch.cat([mask_vector.unsqueeze(0), x[1:].detach()], dim=0)
+
+        x = self.input_projection(x_masked) 
+        x = self.input_norm(x)
+        x = F.gelu(x)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+
+        for conv, norm in zip(self.convs, self.norms):
+            h = conv(x, edge_index)
+            h = norm(h)
+            h = F.gelu(h)
+            h = F.dropout(h, p=self.dropout, training=self.training)
+
+            x = x + h
+
+        out = self.output_projection(x)
+
+        return out
+
+
+
+
+class GatedBlock(nn.Module):
+    def __init__(self, dim, dropout=0.5):
+        super().__init__()
+        self.conv = SAGEConv(dim, dim, aggr='mean')
+        self.norm = BatchNorm(dim)
+        self.dropout = dropout
+
+        self.linear_gate = nn.Linear(2 * dim, dim)
+
+    def forward(self, x, edge_index):
+        h = self.conv(x, edge_index)
+        h = self.norm(h)
+        h = F.gelu(h)
+        h = F.dropout(h, p=self.dropout, training=self.training)
+
+        gate = torch.sigmoid(self.linear_gate(torch.cat([x, h], dim=1)))
+        out = gate * x + (1 - gate) * h
+        return out
+
+
+class EmbedderGNNv5(nn.Module):
+    def __init__(self, in_dim, hidden_dim, out_dim, num_layers=3, dropout=0.5):
+        super().__init__()
+        self.dropout = dropout
+        self.num_layers = num_layers
+
+        self.input_projection = nn.Linear(in_dim, hidden_dim)
+        self.input_norm = nn.LayerNorm(hidden_dim)
+        self.mask_token = nn.Parameter(torch.randn(in_dim), requires_grad=True)
+
+        self.layers = nn.ModuleList()
+        for _ in range(self.num_layers):
+            self.layers.append(GatedBlock(hidden_dim, dropout))
+
+        self.jk = JumpingKnowledge(mode='cat', channels=hidden_dim, num_layers=num_layers)
+
+        self.output_projection = nn.Linear(hidden_dim * num_layers, out_dim)
+
+    def forward(self, x, edge_index):
+        mask_vector = self.mask_token
+        x_masked = torch.cat([mask_vector.unsqueeze(0), x[1:].detach()], dim=0)
+
+        x = self.input_proj(x_masked)
+        x = self.input_norm(x)
+        x = F.gelu(x)
+
+        layer_outputs = []
+
+        for layer in self.layers:
+            x = layer(x, edge_index)
+            layer_outputs.append(x)
+
+        x = self.jk(layer_outputs)
+
+        x = self.out_proj(x)
         return x
