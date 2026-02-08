@@ -7,7 +7,7 @@ from fastapi import HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 
-from backend.core.config import AUTH0_AUDIENCE, AUTH0_DOMAIN
+from core.config import AUTH0_AUDIENCE, AUTH0_DOMAIN
 
 security = HTTPBearer(auto_error=False)
 

@@ -117,6 +117,8 @@ const citations = [
   { source: 'diffusion', target: 'transformer' },
 ];
 
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+
 const MLVisualization: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -263,7 +265,7 @@ const MLVisualization: React.FC = () => {
                       }
                     }
 
-                    const res = await fetch('http://localhost:8000/api/upload', {
+                    const res = await fetch(`${API_BASE}/api/upload`, {
                       method: 'POST',
                       body: form,
                       headers,

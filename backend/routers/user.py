@@ -1,8 +1,8 @@
 """User-related endpoints (e.g. Auth0 user_metadata history)."""
 from fastapi import APIRouter, Depends
 
-from backend.core.auth import get_sub_from_token, security
-from backend.services import auth0_storage
+from core.auth import get_sub_from_token, security
+from services import auth0_storage
 
 router = APIRouter(prefix="/api/user", tags=["user"])
 

@@ -5,7 +5,7 @@ import urllib.request
 from pathlib import Path
 
 import arxiv
-from backend.core.config import MAG_ID_TO_TITLE_PATH
+from core.config import MAG_ID_TO_TITLE_PATH
 
 # In-memory cache: OpenAlex ID -> title
 _mag_id_to_title: dict[str, str] | None = None

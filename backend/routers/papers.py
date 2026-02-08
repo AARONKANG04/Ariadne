@@ -4,13 +4,13 @@ import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.core.auth import get_sub_from_token, security
-from backend.core.config import (
+from core.auth import get_sub_from_token, security
+from core.config import (
     MAG_TO_NODE_IDX_PATH,
     NODE_TO_MAG_ID_PATH,
     PAPER_EMBEDDINGS_PATH,
 )
-from backend.services import auth0_storage, paper_service
+from services import auth0_storage, paper_service
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
 

@@ -3,7 +3,7 @@
 Generate backend/embedding_index_to_mag_id.json from OGB nodeidx2paperid mapping.
 Run from repo root with path to the CSV (e.g. ml_pipeline data or ogbn-arxiv mapping).
 
-  python -m backend.scripts.gen_embedding_index_to_mag_id path/to/nodeidx2paperid.csv
+  python -m scripts.gen_embedding_index_to_mag_id path/to/nodeidx2paperid.csv
 
 Output: backend/embedding_index_to_mag_id.json (array of OpenAlex URLs in node order).
 """
