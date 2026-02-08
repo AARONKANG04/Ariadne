@@ -1,10 +1,12 @@
 from dotenv import load_dotenv
 load_dotenv()
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import papers, upload, user
+from .routers import papers, upload, user
 import numpy as np
+from pathlib import Path
 
 app = FastAPI(
     title="Ariadne API",
@@ -12,14 +14,31 @@ app = FastAPI(
 )
 
 # Load precomputed embeddings (no torch needed!)
-embeddings = np.load("paper_embeddings_256d.npy").astype('float32')
-embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+embeddings_path = Path(__file__).parent / "paper_embeddings_256d.npy"
+if embeddings_path.exists():
+    embeddings = np.load(embeddings_path).astype('float32')
+    embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
+    print(f"✅ Loaded {embeddings.shape[0]} paper embeddings")
+else:
+    embeddings = None
+    print("⚠️ Embeddings not found, /get_new_node_embedding will fail")
 
-print(f"✅ Loaded {embeddings.shape[0]} paper embeddings")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+
+if ENVIRONMENT == "production":
+    origins.append("https://ariadne-cxc-2026.vercel.app")
+else:
+    # Allow all in dev
+    origins.append("*")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["ariadne-cxc-2026.vercel.app"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

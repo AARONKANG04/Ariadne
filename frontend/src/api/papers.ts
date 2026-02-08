@@ -33,3 +33,14 @@ export async function registerPaperClick(magId: string, accessToken?: string): P
   });
   if (!res.ok) throw new Error('Failed to register click');
 }
+
+export type TsneNode = { node_id: number; mag_id: string; title?: string; x: number; y: number };
+export type TsneResponse = { history: TsneNode[]; recommendations: TsneNode[] };
+
+export async function fetchTsneCoordinates(accessToken?: string): Promise<TsneResponse> {
+  const res = await fetch(`${API_BASE}/api/papers/tsne-coordinates`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  });
+  if (!res.ok) throw new Error('Failed to fetch t-SNE coordinates');
+  return res.json();
+}

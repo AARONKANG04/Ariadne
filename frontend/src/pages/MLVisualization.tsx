@@ -1,311 +1,330 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Graph from 'graphology';
 import Sigma from 'sigma';
+import { createEdgeArrowProgram } from 'sigma/rendering';
+import { DEFAULT_EDGE_PROGRAM_CLASSES } from 'sigma/settings';
 import { useAuth0 } from '@auth0/auth0-react';
+import { fetchTsneCoordinates, type TsneResponse } from '../api/papers';
 
-// Sample ML papers data
-const papersData = [
-  {
-    id: 'transformer',
-    label: 'Attention is All You Need',
-    authors: 'Vaswani et al.',
-    year: 2017,
-    importance: 0.95,
-    citations: 68000,
-  },
-  {
-    id: 'bert',
-    label: 'BERT: Pre-training of Deep Bidirectional',
-    authors: 'Devlin et al.',
-    year: 2018,
-    importance: 0.92,
-    citations: 45000,
-  },
-  {
-    id: 'gpt',
-    label: 'language models are unsupervised multitask learners',
-    authors: 'Radford et al.',
-    year: 2019,
-    importance: 0.90,
-    citations: 25000,
-  },
-  {
-    id: 'resnet',
-    label: 'Deep Residual Learning for Image Recognition',
-    authors: 'He et al.',
-    year: 2015,
-    importance: 0.93,
-    citations: 80000,
-  },
-  {
-    id: 'vit',
-    label: 'An Image is Worth 16x16 Words',
-    authors: 'Dosovitskiy et al.',
-    year: 2020,
-    importance: 0.88,
-    citations: 15000,
-  },
-  {
-    id: 'diffusion',
-    label: 'Denoising Diffusion Probabilistic Models',
-    authors: 'Ho et al.',
-    year: 2020,
-    importance: 0.86,
-    citations: 8000,
-  },
-  {
-    id: 'gat',
-    label: 'Graph Attention Networks',
-    authors: 'Veličković et al.',
-    year: 2017,
-    importance: 0.82,
-    citations: 5000,
-  },
-  {
-    id: 'gcn',
-    label: 'Semi-Supervised Classification with GCNs',
-    authors: 'Kipf & Welling',
-    year: 2016,
-    importance: 0.84,
-    citations: 12000,
-  },
-  {
-    id: 'attention',
-    label: 'Effective Approaches to Attention-based NMT',
-    authors: 'Luong et al.',
-    year: 2015,
-    importance: 0.80,
-    citations: 18000,
-  },
-  {
-    id: 'unet',
-    label: 'U-Net: Convolutional Networks for Biomedical Image Segmentation',
-    authors: 'Ronneberger et al.',
-    year: 2015,
-    importance: 0.87,
-    citations: 25000,
-  },
-];
+// Bigger arrow heads for history path (default ratios are ~2–3)
+const ARROW_PROGRAM_BIG = createEdgeArrowProgram({
+  lengthToThicknessRatio: 5,
+  widenessToThicknessRatio: 3.5,
+});
 
-// Year to color mapping
-const yearColorMap: { [key: number]: string } = {
-  2015: '#FF6B9D', // Deep pink
-  2016: '#FF8C42', // Orange
-  2017: '#FFC837', // Gold
-  2018: '#26DE81', // Green
-  2019: '#48DBFB', // Light blue
-  2020: '#5F27CD', // Purple
-};
+// Colors for t-SNE graph
+const COLOR_HISTORY = '#26DE81';      // green – history nodes
+const COLOR_CURRENT = '#FFC837';     // gold – current (last history) node
+const COLOR_RECOMMENDATION = '#63b3ed'; // blue – recommendations
+const COLOR_EDGE_PATH = 'rgba(38, 222, 129, 0.7)';   // history path
+const COLOR_EDGE_REC = 'rgba(99, 179, 237, 0.6)';    // current → recommendations
 
-// Get color based on year
-const getYearColor = (year: number): string => {
-  return yearColorMap[year] || '#CCCCCC';
-};
-
-// Citation relationships (edges)
-const citations = [
-  { source: 'bert', target: 'transformer' },
-  { source: 'gpt', target: 'transformer' },
-  { source: 'vit', target: 'transformer' },
-  { source: 'vit', target: 'resnet' },
-  { source: 'diffusion', target: 'gat' },
-  { source: 'gat', target: 'gcn' },
-  { source: 'gcn', target: 'attention' },
-  { source: 'bert', target: 'attention' },
-  { source: 'unet', target: 'resnet' },
-  { source: 'gpt', target: 'bert' },
-  { source: 'diffusion', target: 'transformer' },
-];
-
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const NODE_SIZE = 12;
+const NODE_SIZE_CURRENT = 18;
 
 const MLVisualization: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const { user, getAccessTokenSilently } = useAuth0();
-  const [file, setFile] = useState<File | null>(null);
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [tsneData, setTsneData] = useState<TsneResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; title: string } | null>(null);
+  const mouseRef = useRef({ x: 0, y: 0 });
+
+  const loadTsneAndRender = useCallback(async () => {
+    const container = containerRef.current;
+    if (!container) return;
+    setLoading(true);
+    setError(null);
+    try {
+      let token: string | undefined;
+      try {
+        token = await getAccessTokenSilently?.();
+      } catch {
+        // not logged in or token failed
+      }
+      const data = await fetchTsneCoordinates(token);
+      setTsneData(data);
+
+      // Re-check container after async (component may have unmounted)
+      if (!containerRef.current || !document.body.contains(containerRef.current)) {
+        setLoading(false);
+        return;
+      }
+
+      const { history, recommendations } = data;
+      const totalNodes = history.length + recommendations.length;
+
+      // Clean up previous Sigma before replacing or when there are no nodes
+      try {
+        if (sigmaRef.current) {
+          sigmaRef.current.kill();
+          sigmaRef.current = null;
+        }
+      } catch (_) {
+        sigmaRef.current = null;
+      }
+
+      if (totalNodes === 0) {
+        setLoading(false);
+        return;
+      }
+
+      const graph = new Graph({ type: 'directed' });
+
+      const historyIds = history.map((n) => String(n.node_id));
+      const recIds = recommendations.map((n) => String(n.node_id));
+      const lastHistoryId = historyIds.length > 0 ? historyIds[historyIds.length - 1] : null;
+
+      // Add history nodes (chronological order); no node label (title shows on hover)
+      history.forEach((node, i) => {
+        const id = String(node.node_id);
+        const isLast = i === history.length - 1;
+        graph.addNode(id, {
+          label: '',
+          x: node.x,
+          y: node.y,
+          size: isLast ? NODE_SIZE_CURRENT : NODE_SIZE,
+          color: isLast ? COLOR_CURRENT : COLOR_HISTORY,
+          title: node.title ?? '',
+        });
+      });
+
+      // Add recommendation nodes
+      recommendations.forEach((node) => {
+        const id = String(node.node_id);
+        if (graph.hasNode(id)) return; // avoid duplicate if ever in both
+        graph.addNode(id, {
+          label: '',
+          x: node.x,
+          y: node.y,
+          size: NODE_SIZE,
+          color: COLOR_RECOMMENDATION,
+          title: node.title ?? '',
+        });
+      });
+
+      // History path: arrow from each node to the next (chronological)
+      for (let i = 0; i < historyIds.length - 1; i++) {
+        graph.addDirectedEdgeWithKey(`path-${i}`, historyIds[i], historyIds[i + 1], {
+          type: 'arrow',
+          color: COLOR_EDGE_PATH,
+          size: 1.5,
+        });
+      }
+
+      // Current node → each recommendation (lines, no arrows)
+      if (lastHistoryId) {
+        recIds.forEach((targetId, i) => {
+          if (!graph.hasNode(targetId)) return;
+          graph.addDirectedEdgeWithKey(`rec-${i}`, lastHistoryId, targetId, {
+            type: 'line',
+            color: COLOR_EDGE_REC,
+            size: 1,
+          });
+        });
+      }
+
+      // Container may have been cleared by kill(); ensure we have a valid target
+      const target = containerRef.current;
+      if (!target) {
+        setLoading(false);
+        return;
+      }
+      const sigma = new Sigma(graph, target, {
+        renderEdgeLabels: false,
+        defaultNodeColor: '#ffffff',
+        defaultEdgeColor: '#ffffff',
+        labelDensity: 0.25,
+        labelRenderedSizeThreshold: 8,
+        labelFont: 'Inter, sans-serif',
+        defaultEdgeType: 'arrow',
+        edgeProgramClasses: {
+          ...DEFAULT_EDGE_PROGRAM_CLASSES,
+          arrow: ARROW_PROGRAM_BIG,
+        },
+      });
+      sigmaRef.current = sigma;
+
+      // Show title tooltip on node hover
+      sigma.on('enterNode', ({ node }) => {
+        const attrs = graph.getNodeAttributes(node);
+        const title = (attrs as { title?: string }).title ?? '';
+        if (title) setTooltip({ x: mouseRef.current.x, y: mouseRef.current.y, title });
+      });
+      sigma.on('leaveNode', () => setTooltip(null));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load t-SNE data';
+      setError(message);
+      setTsneData(null);
+      try {
+        if (sigmaRef.current) {
+          sigmaRef.current.kill();
+        }
+      } catch (_) {
+        // ignore
+      }
+      sigmaRef.current = null;
+    } finally {
+      setLoading(false);
+    }
+  }, [getAccessTokenSilently]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-
-    // Create graph
-    const graph = new Graph();
-
-    // Find min and max citations for scaling
-    const citations_array = papersData.map(p => p.citations);
-    const minCitations = Math.min(...citations_array);
-    const maxCitations = Math.max(...citations_array);
-
-    // Add nodes (papers)
-    papersData.forEach((paper) => {
-      // Size based on citation count (importance)
-      const sizeScale = (paper.citations - minCitations) / (maxCitations - minCitations);
-      const nodeSize = 10 + sizeScale * 40;
-
-      graph.addNode(paper.id, {
-        label: paper.label,
-        size: nodeSize,
-        color: getYearColor(paper.year),
-        x: Math.random() * 100,
-        y: Math.random() * 100,
-      });
-    });
-
-    // Add edges (citations)
-    citations.forEach((citation, index) => {
-      graph.addEdgeWithKey(`edge_${index}`, citation.source, citation.target);
-    });
-
-    // Initialize Sigma
-    sigmaRef.current = new Sigma(graph, containerRef.current, {
-      renderEdgeLabels: false,
-      defaultNodeColor: '#ffffff',
-      defaultEdgeColor: '#ffffff',
-      labelDensity: 0.25,
-      labelRenderedSizeThreshold: 6,
-      labelFont: 'Inter, sans-serif',
-    });
-
+    loadTsneAndRender();
     return () => {
-      sigmaRef.current?.kill();
+      try {
+        sigmaRef.current?.kill();
+      } catch (_) {
+        // ignore teardown errors
+      }
+      sigmaRef.current = null;
     };
-  }, []);
+  }, [loadTsneAndRender]);
 
   return (
     <div className="ml-visualization-container">
       <div className="ml-header">
-        <h1 className="ml-title">ML Papers Universe</h1>
+        <h1 className="ml-title">Explore</h1>
         <p className="ml-subtitle">
-          {user?.name ? `Welcome, ${user.name}!` : 'Explore'} — Interactive visualization of influential machine learning papers
+          {user?.name ? `Welcome, ${user.name}!` : 'Explore'} — Your reading history and recommendations in 2D (t-SNE)
         </p>
       </div>
       <div className="ml-content-wrapper">
         <div
-          ref={containerRef}
           className="ml-graph-container"
           style={{
             width: '100%',
             height: 'calc(100vh - 200px)',
-            background: 'linear-gradient(135deg, #0080ff 0%, #0aff80 100%)',
+            minHeight: 400,
+            background: 'linear-gradient(135deg, #1a1f2e 0%, #16213e 50%, #0f1419 100%)',
             borderRadius: '20px',
             overflow: 'hidden',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.8)',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+            position: 'relative',
           }}
-        />
+          onMouseMove={(e) => {
+            mouseRef.current = { x: e.clientX, y: e.clientY };
+            if (tooltip) setTooltip((t) => (t ? { ...t, x: e.clientX, y: e.clientY } : null));
+          }}
+          onMouseLeave={() => setTooltip(null)}
+        >
+          {/* Dedicated container for Sigma only – avoids crash when killing/recreating on refresh */}
+          <div
+            ref={containerRef}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+            aria-hidden="true"
+          />
+          {tooltip && (
+            <div
+              role="tooltip"
+              className="sigma-tooltip"
+              style={{
+                position: 'fixed',
+                left: tooltip.x + 12,
+                top: tooltip.y + 12,
+                maxWidth: 320,
+                padding: '8px 12px',
+                background: 'rgba(15, 20, 25, 0.95)',
+                color: '#e2e8f0',
+                fontSize: '0.9rem',
+                lineHeight: 1.4,
+                borderRadius: 8,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                pointerEvents: 'none',
+                zIndex: 20,
+                border: '1px solid rgba(99, 179, 237, 0.3)',
+              }}
+            >
+              {tooltip.title}
+            </div>
+          )}
+          {loading && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(0,0,0,0.5)',
+                borderRadius: '20px',
+                zIndex: 10,
+              }}
+            >
+              <div className="loading-spinner" />
+              <span className="loading-text" style={{ position: 'absolute', marginTop: 60 }}>Loading t-SNE...</span>
+            </div>
+          )}
+          {error && !loading && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 24,
+                textAlign: 'center',
+                color: '#cbd5e0',
+                zIndex: 10,
+              }}
+            >
+              <p style={{ fontSize: '1.1rem', marginBottom: 12 }}>{error}</p>
+              <button type="button" className="button" onClick={() => loadTsneAndRender()}>
+                Retry
+              </button>
+            </div>
+          )}
+          {!loading && !error && tsneData && tsneData.history.length === 0 && tsneData.recommendations.length === 0 && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#a0aec0',
+                fontSize: '1rem',
+                zIndex: 10,
+              }}
+            >
+              Click papers on For You to build history; your path and recommendations will appear here.
+            </div>
+          )}
+        </div>
         <div className="ml-legend">
           <div className="legend-section">
-            <h4 className="legend-title">Node Size</h4>
-            <p className="legend-text">Represents citation count</p>
-            <div className="size-scale">
-              <div className="size-indicator small"></div>
-              <span className="scale-label">Fewer citations</span>
-            </div>
-            <div className="size-scale">
-              <div className="size-indicator large"></div>
-              <span className="scale-label">More citations</span>
-            </div>
+            <h4 className="legend-title">t-SNE Map</h4>
+            <p className="legend-text">Nodes are placed by similarity. Your history forms a path; the current node links to recommendations.</p>
           </div>
           <div className="legend-section">
-            <h4 className="legend-title">Node Color</h4>
-            <p className="legend-text">Represents publication year</p>
+            <h4 className="legend-title">Node colors</h4>
             <div className="color-scale">
-              {Object.entries(yearColorMap).map(([year, color]) => (
-                <div key={year} className="year-color-item">
-                  <div className="color-dot" style={{ backgroundColor: color }}></div>
-                  <span className="year-label">{year}</span>
-                </div>
-              ))}
+              <div className="year-color-item">
+                <div className="color-dot" style={{ backgroundColor: COLOR_HISTORY }} />
+                <span className="year-label">History</span>
+              </div>
+              <div className="year-color-item">
+                <div className="color-dot" style={{ backgroundColor: COLOR_CURRENT }} />
+                <span className="year-label">Current</span>
+              </div>
+              <div className="year-color-item">
+                <div className="color-dot" style={{ backgroundColor: COLOR_RECOMMENDATION }} />
+                <span className="year-label">Recommendations</span>
+              </div>
             </div>
           </div>
           <div className="legend-section">
-            <h4 className="legend-title">Interactions</h4>
-            <p className="legend-text">Edges represent citation relationships</p>
-            <p className="legend-text" style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
-              Hover over papers to explore their connections
-            </p>
-          </div>
-
-          <div className="legend-section upload-section">
-            <h4 className="legend-title">Upload Paper</h4>
-            <p className="legend-text">Submit a PDF to add it to the processing queue</p>
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={(e) => {
-                setUploadStatus(null);
-                const f = e.target.files && e.target.files[0];
-                setFile(f || null);
-              }}
-              style={{ marginTop: '0.5rem' }}
-            />
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', alignItems: 'center' }}>
-              <button
-                className="button"
-                disabled={!file || uploading}
-                onClick={async () => {
-                  if (!file) {
-                    setUploadStatus('Please choose a PDF file first.');
-                    return;
-                  }
-                  setUploading(true);
-                  setUploadStatus('Uploading...');
-                  try {
-                    const form = new FormData();
-                    form.append('file', file, file.name);
-
-                    const headers: Record<string, string> = {};
-                    if (getAccessTokenSilently) {
-                      try {
-                        const token = await getAccessTokenSilently();
-                        if (token) headers['Authorization'] = `Bearer ${token}`;
-                      } catch (err) {
-                        // token retrieval is optional; continue without token
-                      }
-                    }
-
-                    const res = await fetch(`${API_BASE}/api/upload`, {
-                      method: 'POST',
-                      body: form,
-                      headers,
-                    });
-
-                    if (!res.ok) {
-                      const text = await res.text();
-                      setUploadStatus(`Upload failed: ${res.status} ${text}`);
-                    } else {
-                      setUploadStatus('Upload successful — processing started.');
-                      setFile(null);
-                      // Optionally: trigger refresh of graph or show queued status
-                    }
-                  } catch (err: any) {
-                    setUploadStatus(`Upload error: ${err?.message || String(err)}`);
-                  } finally {
-                    setUploading(false);
-                  }
-                }}
-              >
-                {uploading ? 'Uploading…' : 'Upload PDF'}
-              </button>
-              <button
-                className="button"
-                onClick={() => {
-                  setFile(null);
-                  setUploadStatus(null);
-                }}
-                disabled={uploading}
-              >
-                Clear
-              </button>
-            </div>
-            {file && <div style={{ marginTop: '0.5rem', color: '#cbd5e0' }}>{file.name}</div>}
-            {uploadStatus && <div style={{ marginTop: '0.5rem', color: '#ffffff' }}>{uploadStatus}</div>}
+            <h4 className="legend-title">Edges</h4>
+            <p className="legend-text">Arrows show chronological history path; lines from current to recommended papers.</p>
           </div>
         </div>
       </div>
       <div className="ml-info">
-        <p>💡 Interact with the graph | Node size = citation importance | Colors = publication year</p>
+        <p>💡 Drag to pan, scroll to zoom. Green path = your history order; gold = current; blue = recommendations.</p>
       </div>
     </div>
   );

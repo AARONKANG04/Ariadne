@@ -7,3 +7,4 @@ arxiv
 chromadb
 PyJWT[crypto]
 httpx
+scikit-learn

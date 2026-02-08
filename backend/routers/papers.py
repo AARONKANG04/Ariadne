@@ -1,16 +1,17 @@
 """Paper-related endpoints: arXiv PDF URL by MAG id, For You feed."""
 import numpy as np
+from sklearn.manifold import TSNE
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from core.auth import get_sub_from_token, security
-from core.config import (
+from ..core.auth import get_sub_from_token, security
+from ..core.config import (
     MAG_TO_NODE_IDX_PATH,
     NODE_TO_MAG_ID_PATH,
     PAPER_EMBEDDINGS_PATH,
 )
-from services import auth0_storage, paper_service
+from ..services import auth0_storage, paper_service
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
 
@@ -202,3 +203,97 @@ def get_for_you_papers(
             similar_mag_ids.add(p["mag_id"])
 
     return {"papers": papers, "count": len(papers)}
+
+
+def _get_history_and_top35_node_ids(embeddings: np.ndarray, node_to_mag: dict, history: list[str]):
+    """Return (history_node_ids in chronological order, top_35_recommendation_node_ids)."""
+    num_nodes = embeddings.shape[0]
+    history_set = {int(x) for x in history if isinstance(x, str) and x.isdigit()}
+
+    # Chronological history: node_ids we have mag_id for (oldest to newest)
+    history_node_ids: list[int] = []
+    for x in history:
+        try:
+            ni = int(x)
+            if 0 <= ni < num_nodes and ni in node_to_mag:
+                mag_url = _node_id_to_mag_id_url(ni)
+                if mag_url and paper_service.get_title_by_mag_id(mag_url):
+                    history_node_ids.append(ni)
+        except (ValueError, TypeError):
+            continue
+
+    # User vector: average of history or global mean
+    if history_node_ids:
+        avg = embeddings[history_node_ids].mean(axis=0)
+        avg = avg / np.linalg.norm(avg)
+    else:
+        avg = embeddings.mean(axis=0)
+        avg = avg / np.linalg.norm(avg)
+
+    scores = embeddings @ avg
+    n_similar = 35
+    rec_node_ids: list[int] = []
+    for idx in np.argsort(-scores):
+        idx_int = int(idx)
+        if idx_int in history_set or idx_int not in node_to_mag:
+            continue
+        mag_url = _node_id_to_mag_id_url(idx_int)
+        if mag_url and paper_service.get_title_by_mag_id(mag_url):
+            rec_node_ids.append(idx_int)
+        if len(rec_node_ids) >= n_similar:
+            break
+
+    return history_node_ids, rec_node_ids
+
+
+@router.get("/tsne-coordinates")
+def get_tsne_coordinates(credentials=Depends(security)):
+    """
+    Return history (chronological) and top 35 For You recommendations as 2D coordinates
+    from a single t-SNE run so both can be plotted in the same space.
+    """
+    history: list[str] = []
+    if credentials and credentials.credentials:
+        try:
+            sub = get_sub_from_token(credentials)
+            try:
+                history = auth0_storage.get_node_history(sub)
+            except Exception:
+                pass
+        except HTTPException:
+            pass
+
+    embeddings = _load_embeddings()
+    node_to_mag = _load_node_to_mag()
+    history_node_ids, rec_node_ids = _get_history_and_top35_node_ids(
+        embeddings, node_to_mag, history
+    )
+
+    def _node_to_item(nid: int, mag_url: str | None, x: float, y: float) -> dict:
+        url = mag_url or _node_id_to_mag_id_url(nid) or ""
+        title = paper_service.get_title_by_mag_id(url) if url else None
+        return {"node_id": nid, "mag_id": url, "title": title or "", "x": x, "y": y}
+
+    # Combined points: history first (chronological), then top 35 recommendations
+    all_node_ids = history_node_ids + rec_node_ids
+    if len(all_node_ids) < 2:
+        # t-SNE needs at least 2 samples
+        history_coords = [_node_to_item(nid, _node_id_to_mag_id_url(nid), 0.0, 0.0) for nid in history_node_ids]
+        rec_coords = [_node_to_item(nid, _node_id_to_mag_id_url(nid), 0.0, 0.0) for nid in rec_node_ids]
+        return {"history": history_coords, "recommendations": rec_coords}
+
+    emb_subset = embeddings[all_node_ids]
+    perplexity = min(30, max(2, len(all_node_ids) - 1))
+    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42)
+    coords_2d = tsne.fit_transform(emb_subset)
+
+    history_coords = [
+        _node_to_item(nid, _node_id_to_mag_id_url(nid), float(coords_2d[i, 0]), float(coords_2d[i, 1]))
+        for i, nid in enumerate(history_node_ids)
+    ]
+    n_hist = len(history_node_ids)
+    rec_coords = [
+        _node_to_item(nid, _node_id_to_mag_id_url(nid), float(coords_2d[n_hist + i, 0]), float(coords_2d[n_hist + i, 1]))
+        for i, nid in enumerate(rec_node_ids)
+    ]
+    return {"history": history_coords, "recommendations": rec_coords}

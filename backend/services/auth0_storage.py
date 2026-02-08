@@ -5,7 +5,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import HTTPException, status
 
-from core.config import (
+from ..core.config import (
     AUTH0_DOMAIN,
     AUTH0_MANAGEMENT_AUDIENCE,
     AUTH0_M2M_CLIENT_ID,

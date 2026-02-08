@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
-from core.config import UPLOAD_DIR
+from ..core.config import UPLOAD_DIR
 
 router = APIRouter(prefix="/api", tags=["upload"])
 

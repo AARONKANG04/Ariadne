@@ -1,5 +1,6 @@
 # --- Python / FastAPI ---
 .venv/
+venv/
 ariadne_venv/
 __pycache__/
 *.py[cod]
